@@ -61,7 +61,7 @@ def generate_tpms(tpms_type='Gyroid', resolution=50, iso_value=0.0):
 
 # Streamlit app
 st.title("TPMS Structure Visualizer")
-st.image("/mnt/data/tpms app.jpg")
+st.image("tpms app.jpg")
 
 tpms_type = st.selectbox(
     "Select TPMS Type:",
