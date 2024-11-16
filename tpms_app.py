@@ -10,46 +10,50 @@ Original file is located at
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
+from stl import mesh
 
-# Define TPMS equations
-def gyroid(x, y, z):
-    return np.sin(x) * np.cos(y) + np.sin(y) * np.cos(z) + np.sin(z) * np.cos(x)
+# Define TPMS equations with parameters
+def gyroid(x, y, z, a, b):
+    return a * (np.sin(x) * np.cos(y)) + b * (np.sin(y) * np.cos(z)) + np.sin(z) * np.cos(x)
 
-def schwarz_d(x, y, z):
-    return np.cos(x) + np.cos(y) + np.cos(z)
+def schwarz_d(x, y, z, a, b):
+    return a * np.cos(x) + b * np.cos(y) + np.cos(z)
 
-def schwarz_p(x, y, z):
-    return np.cos(x) + np.cos(y) + np.cos(z) - 1
+def schwarz_p(x, y, z, a, b):
+    return a * np.cos(x) + b * np.cos(y) + np.cos(z) - 1
 
-def neovius(x, y, z):
-    return 3*(np.cos(x) + np.cos(y) + np.cos(z)) + 4*np.cos(x)*np.cos(y)*np.cos(z)
+def neovius(x, y, z, a, b):
+    return a * (np.cos(x) + np.cos(y) + np.cos(z)) + b * np.cos(x) * np.cos(y) * np.cos(z)
 
-# Define the function to generate the mesh
-def generate_tpms(tpms_type='Gyroid', resolution=50, iso_value=0.0):
+# Function to generate the mesh and compute volume fraction
+def generate_tpms(tpms_type='Gyroid', resolution=50, iso_values=[0.0], a=1.0, b=1.0, transparency=0.5):
     x = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
     y = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
     z = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
     x, y, z = np.meshgrid(x, y, z)
 
     if tpms_type == 'Gyroid':
-        values = gyroid(x, y, z)
+        values = gyroid(x, y, z, a, b)
     elif tpms_type == 'Schwarz D':
-        values = schwarz_d(x, y, z)
+        values = schwarz_d(x, y, z, a, b)
     elif tpms_type == 'Schwarz P':
-        values = schwarz_p(x, y, z)
+        values = schwarz_p(x, y, z, a, b)
     elif tpms_type == 'Neovius':
-        values = neovius(x, y, z)
+        values = neovius(x, y, z, a, b)
 
-    fig = go.Figure(data=go.Isosurface(
-        x=x.flatten(),
-        y=y.flatten(),
-        z=z.flatten(),
-        value=values.flatten(),
-        isomin=iso_value,
-        isomax=iso_value,
-        surface_count=1,
-        colorscale='Viridis',
-    ))
+    fig = go.Figure()
+    for iso_value in iso_values:
+        fig.add_trace(go.Isosurface(
+            x=x.flatten(),
+            y=y.flatten(),
+            z=z.flatten(),
+            value=values.flatten(),
+            isomin=iso_value,
+            isomax=iso_value,
+            surface_count=1,
+            colorscale='Viridis',
+            opacity=transparency,
+        ))
 
     fig.update_layout(scene=dict(
         xaxis=dict(title='X-axis'),
@@ -57,32 +61,57 @@ def generate_tpms(tpms_type='Gyroid', resolution=50, iso_value=0.0):
         zaxis=dict(title='Z-axis'),
     ))
 
-    return fig
+    # Volume fraction calculation (percentage of volume where TPMS <= iso_value)
+    volume_fraction = np.sum(values <= iso_values[0]) / values.size * 100
+    return fig, volume_fraction
+
+# Function to export TPMS as STL
+def export_stl(x, y, z, values, iso_value, filename='tpms.stl'):
+    from skimage import measure
+
+    verts, faces, _, _ = measure.marching_cubes(values, level=iso_value)
+    verts = verts / values.shape[0] * (x.max() - x.min()) + x.min()
+
+    tpms_mesh = mesh.Mesh(np.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
+    for i, f in enumerate(faces):
+        for j in range(3):
+            tpms_mesh.vectors[i][j] = verts[f[j], :]
+
+    tpms_mesh.save(filename)
+    return filename
 
 # Streamlit app
 st.title("TPMS Structure Visualizer")
 st.image("tpms app.jpg")
 
-tpms_type = st.selectbox(
-    "Select TPMS Type:",
-    ["Gyroid", "Schwarz D", "Schwarz P", "Neovius"]
-)
+# UI for selecting TPMS type and parameters
+tpms_type = st.selectbox("Select TPMS Type:", ["Gyroid", "Schwarz D", "Schwarz P", "Neovius"])
+resolution = st.slider("Select Resolution:", min_value=20, max_value=200, value=50, step=10)
+iso_values = st.multiselect("Select Iso Values:", [-0.5, 0.0, 0.5, 1.0], default=[0.0])
+a = st.slider("Adjust Coefficient A:", min_value=0.5, max_value=2.0, value=1.0, step=0.1)
+b = st.slider("Adjust Coefficient B:", min_value=0.5, max_value=2.0, value=1.0, step=0.1)
+transparency = st.slider("Set Transparency:", min_value=0.1, max_value=1.0, value=0.5, step=0.1)
 
-resolution = st.slider(
-    "Select Resolution:",
-    min_value=20,
-    max_value=200,
-    value=50,
-    step=10
-)
+fig, volume_fraction = generate_tpms(tpms_type, resolution, iso_values, a, b, transparency)
 
-iso_value = st.slider(
-    "Select Iso Value:",
-    min_value=-1.0,
-    max_value=1.0,
-    value=0.0,
-    step=0.01
-)
-
-fig = generate_tpms(tpms_type, resolution, iso_value)
 st.plotly_chart(fig)
+
+st.write(f"**Volume Fraction:** {volume_fraction:.2f}%")
+
+# Export functionality
+if st.button("Export as STL"):
+    x = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
+    y = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
+    z = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
+    x, y, z = np.meshgrid(x, y, z)
+    if tpms_type == 'Gyroid':
+        values = gyroid(x, y, z, a, b)
+    elif tpms_type == 'Schwarz D':
+        values = schwarz_d(x, y, z, a, b)
+    elif tpms_type == 'Schwarz P':
+        values = schwarz_p(x, y, z, a, b)
+    elif tpms_type == 'Neovius':
+        values = neovius(x, y, z, a, b)
+
+    filepath = export_stl(x, y, z, values, iso_values[0])
+    st.success(f"STL file exported: {filepath}")
