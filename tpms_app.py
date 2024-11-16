@@ -10,11 +10,11 @@ Original file is located at
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
+import pyvista as pv
 from stl import mesh
 from skimage import measure
-import pyvista as pv
 
-# Define TPMS equations
+# Define TPMS equations with parameters
 def gyroid(x, y, z, a, b):
     return a * (np.sin(x) * np.cos(y)) + b * (np.sin(y) * np.cos(z)) + np.sin(z) * np.cos(x)
 
@@ -27,8 +27,8 @@ def schwarz_p(x, y, z, a, b):
 def neovius(x, y, z, a, b):
     return a * (np.cos(x) + np.cos(y) + np.cos(z)) + b * np.cos(x) * np.cos(y) * np.cos(z)
 
-# Function to generate TPMS visualization and calculate volume fraction
-def generate_tpms(tpms_type, resolution, iso_values, a, b, transparency):
+# Function to generate the mesh and compute volume fraction
+def generate_tpms(tpms_type='Gyroid', resolution=50, iso_values=[0.0], a=1.0, b=1.0, transparency=0.5):
     x = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
     y = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
     z = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
@@ -63,10 +63,11 @@ def generate_tpms(tpms_type, resolution, iso_values, a, b, transparency):
         zaxis=dict(title='Z-axis'),
     ))
 
+    # Volume fraction calculation (percentage of volume where TPMS <= iso_value)
     volume_fraction = np.sum(values <= iso_values[0]) / values.size * 100
-    return fig, volume_fraction, x, y, z, values
+    return fig, volume_fraction
 
-# Function to export STL
+# Function to export TPMS as STL
 def export_stl(x, y, z, values, iso_value, filename='tpms.stl'):
     verts, faces, _, _ = measure.marching_cubes(values, level=iso_value)
     verts = verts / values.shape[0] * (x.max() - x.min()) + x.min()
@@ -79,43 +80,67 @@ def export_stl(x, y, z, values, iso_value, filename='tpms.stl'):
     tpms_mesh.save(filename)
     return filename
 
-# Function for fluid flow simulation
+# Function to simulate fluid flow patterns
 def simulate_fluid_flow(x, y, z, values, iso_value):
-    verts, faces, _, _ = measure.marching_cubes(values, level=iso_value)
-    verts = verts / values.shape[0] * (x.max() - x.min()) + x.min()
-    faces = np.hstack([np.full((faces.shape[0], 1), 3), faces])  # Add connectivity info
+    # Create a PyVista structured grid
+    grid = pv.StructuredGrid()
+    grid.points = np.c_[x.flatten(), y.flatten(), z.flatten()]
+    grid["values"] = values.flatten()
 
-    mesh = pv.PolyData(verts, faces)
-    velocity = pv.PolyData(mesh.points)
-    velocity["vectors"] = np.random.randn(mesh.points.shape[0], 3)  # Example velocity field
+    # Generate a velocity field (example: gradient of values)
+    velocity = np.gradient(values)
+    grid["vectors"] = np.stack(velocity, axis=-1).reshape(-1, 3)
 
-    streamlines = mesh.streamlines_from_source(velocity, vectors="vectors", n_points=100)
+    # Sample seed points for streamlines
+    seeds = grid.sample_points_uniformly(dimensions=(5, 5, 5))  # Adjust dimensions
 
-    plotter = pv.Plotter(off_screen=True)
-    plotter.add_mesh(mesh, color="white", opacity=0.3)
+    # Generate streamlines
+    streamlines = grid.streamlines(vectors="vectors", source=seeds)
+
+    # Plot with PyVista
+    plotter = pv.Plotter()
     plotter.add_mesh(streamlines, color="blue", line_width=2)
+    plotter.add_mesh(grid.contour([iso_value]), opacity=0.5)
+    plotter.show(screenshot="fluid_flow_pattern.png")
 
-    return plotter.screenshot(return_img=True)
+    return "fluid_flow_pattern.png"
 
 # Streamlit app
-st.title("TPMS Visualizer with Fluid Flow Simulation")
+st.title("TPMS Structure Visualizer")
 st.image("tpms app.jpg")
 
+# UI for selecting TPMS type and parameters
 tpms_type = st.selectbox("Select TPMS Type:", ["Gyroid", "Schwarz D", "Schwarz P", "Neovius"])
-resolution = st.slider("Resolution:", min_value=20, max_value=200, value=50, step=10)
-iso_values = st.multiselect("Iso Values:", [-0.5, 0.0, 0.5, 1.0], default=[0.0])
-a = st.slider("Coefficient A:", min_value=0.5, max_value=2.0, value=1.0, step=0.1)
-b = st.slider("Coefficient B:", min_value=0.5, max_value=2.0, value=1.0, step=0.1)
-transparency = st.slider("Transparency:", min_value=0.1, max_value=1.0, value=0.5, step=0.1)
+resolution = st.slider("Select Resolution:", min_value=20, max_value=200, value=50, step=10)
+iso_values = st.multiselect("Select Iso Values:", [-0.5, 0.0, 0.5, 1.0], default=[0.0])
+a = st.slider("Adjust Coefficient A:", min_value=0.5, max_value=2.0, value=1.0, step=0.1)
+b = st.slider("Adjust Coefficient B:", min_value=0.5, max_value=2.0, value=1.0, step=0.1)
+transparency = st.slider("Set Transparency:", min_value=0.1, max_value=1.0, value=0.5, step=0.1)
 
-fig, volume_fraction, x, y, z, values = generate_tpms(tpms_type, resolution, iso_values, a, b, transparency)
+fig, volume_fraction = generate_tpms(tpms_type, resolution, iso_values, a, b, transparency)
+
 st.plotly_chart(fig)
+
 st.write(f"**Volume Fraction:** {volume_fraction:.2f}%")
 
-if st.button("Export STL"):
+# Export functionality
+if st.button("Export as STL"):
+    x = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
+    y = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
+    z = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
+    x, y, z = np.meshgrid(x, y, z)
+    if tpms_type == 'Gyroid':
+        values = gyroid(x, y, z, a, b)
+    elif tpms_type == 'Schwarz D':
+        values = schwarz_d(x, y, z, a, b)
+    elif tpms_type == 'Schwarz P':
+        values = schwarz_p(x, y, z, a, b)
+    elif tpms_type == 'Neovius':
+        values = neovius(x, y, z, a, b)
+
     filepath = export_stl(x, y, z, values, iso_values[0])
     st.success(f"STL file exported: {filepath}")
 
-if st.button("Simulate Fluid Flow"):
-    image = simulate_fluid_flow(x, y, z, values, iso_values[0])
-    st.image(image, caption="Fluid Flow Simulation")
+    # Simulate fluid flow and display the pattern
+    fluid_flow_filepath = simulate_fluid_flow(x, y, z, values, iso_values[0])
+    st.image(fluid_flow_filepath, caption="Simulated Fluid Flow Pattern")
