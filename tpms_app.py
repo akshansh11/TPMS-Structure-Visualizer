@@ -27,7 +27,7 @@ def neovius(x, y, z, a, b):
     return a * (np.cos(x) + np.cos(y) + np.cos(z)) + b * np.cos(x) * np.cos(y) * np.cos(z)
 
 # Function to generate the mesh and compute volume fraction
-def generate_tpms(tpms_type='Gyroid', resolution=50, iso_values=[0.0], a=1.0, b=1.0, transparency=0.5):
+def generate_tpms(tpms_type='Gyroid', resolution=50, iso_values=None, a=1.0, b=1.0, transparency=0.5):
     x = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
     y = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
     z = np.linspace(-2 * np.pi, 2 * np.pi, resolution)
@@ -41,6 +41,14 @@ def generate_tpms(tpms_type='Gyroid', resolution=50, iso_values=[0.0], a=1.0, b=
         values = schwarz_p(x, y, z, a, b)
     elif tpms_type == 'Neovius':
         values = neovius(x, y, z, a, b)
+
+    # Calculate the minimum and maximum of the values
+    value_min = np.min(values)
+    value_max = np.max(values)
+
+    # If no iso_values are provided, generate a set based on the value range
+    if iso_values is None:
+        iso_values = [value_min + (value_max - value_min) * i / 4 for i in range(1, 4)]
 
     fig = go.Figure()
     for iso_value in iso_values:
@@ -64,7 +72,7 @@ def generate_tpms(tpms_type='Gyroid', resolution=50, iso_values=[0.0], a=1.0, b=
 
     # Accurate volume fraction calculation
     volume_fraction = calculate_volume_fraction(values, iso_values[0])
-    return fig, volume_fraction
+    return fig, volume_fraction, value_min, value_max
 
 # Accurate volume fraction calculation by counting grid cells
 def calculate_volume_fraction(values, iso_value):
@@ -96,16 +104,16 @@ st.image("tpms app.jpg")
 # UI for selecting TPMS type and parameters
 tpms_type = st.selectbox("Select TPMS Type:", ["Gyroid", "Schwarz D", "Schwarz P", "Neovius"])
 resolution = st.slider("Select Resolution:", min_value=20, max_value=200, value=50, step=10)
-iso_values = st.multiselect("Select Iso Values:", [-0.5, 0.0, 0.5, 1.0], default=[0.0])
 a = st.slider("Adjust Coefficient A:", min_value=0.5, max_value=2.0, value=1.0, step=0.1)
 b = st.slider("Adjust Coefficient B:", min_value=0.5, max_value=2.0, value=1.0, step=0.1)
 transparency = st.slider("Set Transparency:", min_value=0.1, max_value=1.0, value=0.5, step=0.1)
 
-fig, volume_fraction = generate_tpms(tpms_type, resolution, iso_values, a, b, transparency)
+fig, volume_fraction, value_min, value_max = generate_tpms(tpms_type, resolution, a=a, b=b, transparency=transparency)
 
 st.plotly_chart(fig)
 
-st.write(f"**Volume Fraction:** {volume_fraction:.2f}%")
+st.write(f"**Volume Fraction at Iso-Value {value_min + (value_max - value_min) * 1 / 4:.2f}:** {volume_fraction:.2f}%")
+st.write(f"**Iso-Value Range:** {value_min:.2f} to {value_max:.2f}")
 
 # Export functionality
 if st.button("Export as STL"):
@@ -122,5 +130,5 @@ if st.button("Export as STL"):
     elif tpms_type == 'Neovius':
         values = neovius(x, y, z, a, b)
 
-    filepath = export_stl(x, y, z, values, iso_values[0])
+    filepath = export_stl(x, y, z, values, value_min + (value_max - value_min) * 1 / 4)
     st.success(f"STL file exported: {filepath}")
