@@ -2,3 +2,5 @@ streamlit
 numpy
 plotly
 numpy-stl
+scikit-image
+pyvista
