@@ -66,19 +66,14 @@ def generate_tpms(tpms_type='Gyroid', resolution=50, iso_values=[0.0], a=1.0, b=
     volume_fraction = calculate_volume_fraction(values, iso_values[0])
     return fig, volume_fraction
 
-# Accurate volume fraction calculation based on marching cubes
+# Accurate volume fraction calculation by counting grid cells
 def calculate_volume_fraction(values, iso_value):
-    # Extract the iso-surface using marching cubes
-    verts, faces, _, _ = measure.marching_cubes(values, level=iso_value)
+    # Count how many values are below or above the iso_value
+    volume_above_iso = np.sum(values >= iso_value)
+    total_volume = values.size  # Total number of grid points
     
-    # Calculate volume based on the number of vertices (which represent the surface)
-    volume = len(verts) * np.prod(np.diff(np.linspace(-2 * np.pi, 2 * np.pi, values.shape[0])))
-
-    # Calculate total volume of the region (assuming the region is a cube)
-    total_volume = np.prod(values.shape)  # As values is a 3D grid, its size gives total volume
-
-    # Volume fraction is the ratio of the volume occupied by the iso-surface to the total volume
-    volume_fraction = (volume / total_volume) * 100
+    # Calculate volume fraction as the ratio of grid cells above iso_value to the total volume
+    volume_fraction = (volume_above_iso / total_volume) * 100
     return volume_fraction
 
 # Function to export TPMS as STL
