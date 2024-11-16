@@ -10,9 +10,7 @@ Original file is located at
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
-import pyvista as pv
 from stl import mesh
-from skimage import measure
 
 # Define TPMS equations with parameters
 def gyroid(x, y, z, a, b):
@@ -69,6 +67,8 @@ def generate_tpms(tpms_type='Gyroid', resolution=50, iso_values=[0.0], a=1.0, b=
 
 # Function to export TPMS as STL
 def export_stl(x, y, z, values, iso_value, filename='tpms.stl'):
+    from skimage import measure
+
     verts, faces, _, _ = measure.marching_cubes(values, level=iso_value)
     verts = verts / values.shape[0] * (x.max() - x.min()) + x.min()
 
@@ -79,31 +79,6 @@ def export_stl(x, y, z, values, iso_value, filename='tpms.stl'):
 
     tpms_mesh.save(filename)
     return filename
-
-# Function to simulate fluid flow patterns
-def simulate_fluid_flow(x, y, z, values, iso_value):
-    # Create a PyVista structured grid
-    grid = pv.StructuredGrid()
-    grid.points = np.c_[x.flatten(), y.flatten(), z.flatten()]
-    grid["values"] = values.flatten()
-
-    # Generate a velocity field (example: gradient of values)
-    velocity = np.gradient(values)
-    grid["vectors"] = np.stack(velocity, axis=-1).reshape(-1, 3)
-
-    # Sample seed points for streamlines
-    seeds = grid.sample_points_uniformly(dimensions=(5, 5, 5))  # Adjust dimensions
-
-    # Generate streamlines
-    streamlines = grid.streamlines(vectors="vectors", source=seeds)
-
-    # Plot with PyVista
-    plotter = pv.Plotter()
-    plotter.add_mesh(streamlines, color="blue", line_width=2)
-    plotter.add_mesh(grid.contour([iso_value]), opacity=0.5)
-    plotter.show(screenshot="fluid_flow_pattern.png")
-
-    return "fluid_flow_pattern.png"
 
 # Streamlit app
 st.title("TPMS Structure Visualizer")
@@ -140,7 +115,3 @@ if st.button("Export as STL"):
 
     filepath = export_stl(x, y, z, values, iso_values[0])
     st.success(f"STL file exported: {filepath}")
-
-    # Simulate fluid flow and display the pattern
-    fluid_flow_filepath = simulate_fluid_flow(x, y, z, values, iso_values[0])
-    st.image(fluid_flow_filepath, caption="Simulated Fluid Flow Pattern")
